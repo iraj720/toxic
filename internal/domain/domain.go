@@ -70,6 +70,8 @@ type Transaction struct {
 	AssetAmount      decimal.Decimal
 	SettlementAsset  string
 	SettlementAmount decimal.Decimal
+	FeeAssetCode     string
+	FeeAmount        decimal.Decimal
 	Price            decimal.Decimal
 	Reference        string
 	Status           string
@@ -108,12 +110,23 @@ type QuoteToSettlementRate struct {
 }
 
 type TradeQuote struct {
-	Asset             string
-	AssetAmount       decimal.Decimal
-	SettlementAsset   string
-	SettlementAmount  decimal.Decimal
-	PriceInSettlement decimal.Decimal
-	PriceInQuote      decimal.Decimal
-	QuoteCurrency     string
-	Source            string
+	Asset                 string
+	AssetAmount           decimal.Decimal
+	SettlementAsset       string
+	GrossSettlementAmount decimal.Decimal
+	SettlementAmount      decimal.Decimal
+	FeeAsset              string
+	FeeAmount             decimal.Decimal
+	PriceInSettlement     decimal.Decimal
+	PriceInQuote          decimal.Decimal
+	QuoteCurrency         string
+	Source                string
+}
+
+type TransferQuote struct {
+	Asset            string
+	AssetAmount      decimal.Decimal
+	FeeAsset         string
+	FeeAmount        decimal.Decimal
+	TotalDebitAmount decimal.Decimal
 }

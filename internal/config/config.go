@@ -16,6 +16,7 @@ type Config struct {
 	Telegram  TelegramConfig  `yaml:"telegram"`
 	Database  DatabaseConfig  `yaml:"database"`
 	Deposit   DepositConfig   `yaml:"deposit"`
+	Fees      FeesConfig      `yaml:"fees"`
 	Market    MarketConfig    `yaml:"market"`
 	Providers ProvidersConfig `yaml:"providers"`
 }
@@ -41,6 +42,10 @@ type DatabaseConfig struct {
 
 type DepositConfig struct {
 	CardNumber string `yaml:"card_number"`
+}
+
+type FeesConfig struct {
+	TransactionPercent string `yaml:"transaction_percent"`
 }
 
 type MarketConfig struct {
@@ -109,6 +114,9 @@ func (c *Config) applyDefaults() {
 	if c.Telegram.PollTimeoutSeconds <= 0 {
 		c.Telegram.PollTimeoutSeconds = 30
 	}
+	if c.Fees.TransactionPercent == "" {
+		c.Fees.TransactionPercent = "2"
+	}
 	if c.Market.Provider == "" {
 		c.Market.Provider = "kucoin"
 	}
@@ -153,6 +161,12 @@ func (c Config) validate() error {
 	if len(c.EnabledCoins()) == 0 {
 		errs = append(errs, errors.New("market.coins must include at least one enabled coin"))
 	}
+	feePercent, err := decimal.NewFromString(c.Fees.TransactionPercent)
+	if err != nil {
+		errs = append(errs, fmt.Errorf("fees.transaction_percent: %w", err))
+	} else if feePercent.LessThan(decimal.Zero) || feePercent.GreaterThan(decimal.NewFromInt(100)) {
+		errs = append(errs, errors.New("fees.transaction_percent must be between 0 and 100"))
+	}
 	if _, err := decimal.NewFromString(c.Market.QuoteToSettlementRate); err != nil {
 		errs = append(errs, fmt.Errorf("market.quote_to_settlement_rate: %w", err))
 	}
@@ -184,4 +198,12 @@ func (c Config) CoinSymbols() []string {
 
 func (c Config) QuoteToSettlementDecimal() decimal.Decimal {
 	return decimal.RequireFromString(c.Market.QuoteToSettlementRate)
+}
+
+func (c Config) TransactionFeePercentDecimal() decimal.Decimal {
+	return decimal.RequireFromString(c.Fees.TransactionPercent)
+}
+
+func (c Config) TransactionFeeRateDecimal() decimal.Decimal {
+	return c.TransactionFeePercentDecimal().Div(decimal.NewFromInt(100))
 }

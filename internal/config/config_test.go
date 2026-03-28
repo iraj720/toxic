@@ -10,6 +10,8 @@ func TestLoad(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
 	raw := `
+fees:
+  transaction_percent: "2.5"
 telegram:
   bot_token: "token"
 database:
@@ -36,5 +38,8 @@ market:
 	}
 	if got := cfg.QuoteToSettlementDecimal().String(); got != "56000" {
 		t.Fatalf("expected aliased quote-to-settlement rate 56000, got %s", got)
+	}
+	if got := cfg.TransactionFeePercentDecimal().String(); got != "2.5" {
+		t.Fatalf("expected transaction fee percent 2.5, got %s", got)
 	}
 }

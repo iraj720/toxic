@@ -16,6 +16,9 @@ database:
 deposit:
   card_number: "5041-9918-0000-0000"
 
+fees:
+  transaction_percent: "2"
+
 market:
   provider: kucoin
   quote_currency: USDT

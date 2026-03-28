@@ -65,7 +65,7 @@ func (f fakeStore) Sell(context.Context, int64, domain.TradeQuote) (domain.Trans
 	return domain.Transaction{}, nil
 }
 
-func (f fakeStore) Transfer(context.Context, int64, int64, string, decimal.Decimal) (domain.Transaction, error) {
+func (f fakeStore) Transfer(context.Context, int64, int64, domain.TransferQuote) (domain.Transaction, error) {
 	return domain.Transaction{}, nil
 }
 
@@ -95,6 +95,7 @@ func TestQuoteBuyUsesSettlementRate(t *testing.T) {
 	cfg := config.Config{
 		Telegram: config.TelegramConfig{BotToken: "token"},
 		Database: config.DatabaseConfig{Address: "postgres://localhost/exchange"},
+		Fees:     config.FeesConfig{TransactionPercent: "2"},
 		Market: config.MarketConfig{
 			Provider:              "kucoin",
 			QuoteCurrency:         "USDT",
@@ -118,6 +119,12 @@ func TestQuoteBuyUsesSettlementRate(t *testing.T) {
 	}
 	if !quote.AssetAmount.Equal(decimal.NewFromInt(1)) {
 		t.Fatalf("expected asset amount 1, got %s", quote.AssetAmount)
+	}
+	if !quote.FeeAmount.Equal(decimal.NewFromInt(4)) {
+		t.Fatalf("expected fee amount 4, got %s", quote.FeeAmount)
+	}
+	if !quote.SettlementAmount.Equal(decimal.NewFromInt(204)) {
+		t.Fatalf("expected total settlement amount 204, got %s", quote.SettlementAmount)
 	}
 }
 
@@ -146,6 +153,67 @@ func TestCurrentQuoteToSettlementRateFallsBackToConfig(t *testing.T) {
 	}
 	if !rate.Rate.Equal(decimal.NewFromInt(42000)) {
 		t.Fatalf("expected config rate 42000, got %s", rate.Rate)
+	}
+}
+
+func TestQuoteSellAppliesConfiguredTransactionFee(t *testing.T) {
+	cfg := config.Config{
+		Telegram: config.TelegramConfig{BotToken: "token"},
+		Database: config.DatabaseConfig{Address: "postgres://localhost/exchange"},
+		Fees:     config.FeesConfig{TransactionPercent: "2"},
+		Market: config.MarketConfig{
+			QuoteCurrency:         "USDT",
+			SettlementCurrency:    "TMN",
+			QuoteToSettlementRate: "2",
+			Coins: []config.CoinConfig{
+				{Symbol: "BTC"},
+			},
+		},
+	}
+
+	svc := New(cfg, fakeStore{}, fakeProvider{price: decimal.NewFromInt(100)})
+	quote, err := svc.QuoteSell(context.Background(), "BTC", decimal.NewFromInt(1))
+	if err != nil {
+		t.Fatalf("QuoteSell returned error: %v", err)
+	}
+
+	if !quote.GrossSettlementAmount.Equal(decimal.NewFromInt(200)) {
+		t.Fatalf("expected gross settlement amount 200, got %s", quote.GrossSettlementAmount)
+	}
+	if !quote.FeeAmount.Equal(decimal.NewFromInt(4)) {
+		t.Fatalf("expected fee amount 4, got %s", quote.FeeAmount)
+	}
+	if !quote.SettlementAmount.Equal(decimal.NewFromInt(196)) {
+		t.Fatalf("expected net settlement amount 196, got %s", quote.SettlementAmount)
+	}
+}
+
+func TestQuoteTransferAppliesConfiguredTransactionFee(t *testing.T) {
+	cfg := config.Config{
+		Telegram: config.TelegramConfig{BotToken: "token"},
+		Database: config.DatabaseConfig{Address: "postgres://localhost/exchange"},
+		Fees:     config.FeesConfig{TransactionPercent: "2"},
+		Market: config.MarketConfig{
+			QuoteCurrency:         "USDT",
+			SettlementCurrency:    "TMN",
+			QuoteToSettlementRate: "42000",
+			Coins: []config.CoinConfig{
+				{Symbol: "BTC"},
+			},
+		},
+	}
+
+	svc := New(cfg, fakeStore{}, fakeProvider{price: decimal.NewFromInt(100)})
+	quote, err := svc.QuoteTransfer("BTC", decimal.NewFromInt(10))
+	if err != nil {
+		t.Fatalf("QuoteTransfer returned error: %v", err)
+	}
+
+	if !quote.FeeAmount.Equal(decimal.RequireFromString("0.2")) {
+		t.Fatalf("expected fee amount 0.2, got %s", quote.FeeAmount)
+	}
+	if !quote.TotalDebitAmount.Equal(decimal.RequireFromString("10.2")) {
+		t.Fatalf("expected total debit amount 10.2, got %s", quote.TotalDebitAmount)
 	}
 }
 

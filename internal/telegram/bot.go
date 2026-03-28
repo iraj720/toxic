@@ -265,13 +265,15 @@ func (b *Bot) handleSession(ctx context.Context, chatID int64, user domain.User,
 		}
 		session.Step = stepBuyConfirm
 		session.Data["asset_amount"] = quote.AssetAmount.String()
+		session.Data["gross_settlement_amount"] = quote.GrossSettlementAmount.String()
 		session.Data["settlement_amount"] = quote.SettlementAmount.String()
+		session.Data["fee_amount"] = quote.FeeAmount.String()
 		session.Data["price"] = quote.PriceInSettlement.String()
 		b.service.Sessions().Set(user.ID, session)
 		return true, b.client.SendMessage(
 			ctx,
 			chatID,
-			b.i18n.Text(locale, "buy.review", quote.Asset, formatAmount(quote.PriceInSettlement, quote.SettlementAsset), quote.SettlementAsset, formatAmount(quote.SettlementAmount, quote.SettlementAsset), quote.SettlementAsset, formatAmount(quote.AssetAmount, quote.Asset), quote.Asset, quote.Source),
+			b.i18n.Text(locale, "buy.review", quote.Asset, formatAmount(quote.PriceInSettlement, quote.SettlementAsset), quote.SettlementAsset, formatAmount(quote.GrossSettlementAmount, quote.SettlementAsset), quote.SettlementAsset, formatAmount(quote.FeeAmount, quote.FeeAsset), quote.FeeAsset, formatAmount(quote.SettlementAmount, quote.SettlementAsset), quote.SettlementAsset, formatAmount(quote.AssetAmount, quote.Asset), quote.Asset, quote.Source),
 			b.confirmMenu(locale),
 		)
 	case stepBuyConfirm:
@@ -279,11 +281,14 @@ func (b *Bot) handleSession(ctx context.Context, chatID int64, user domain.User,
 			return true, b.client.SendMessage(ctx, chatID, b.i18n.Text(locale, "buy.confirm_prompt"), b.confirmMenu(locale))
 		}
 		quote := domain.TradeQuote{
-			Asset:             session.Data["asset"],
-			AssetAmount:       decimal.RequireFromString(session.Data["asset_amount"]),
-			SettlementAsset:   b.cfg.Market.SettlementCurrency,
-			SettlementAmount:  decimal.RequireFromString(session.Data["settlement_amount"]),
-			PriceInSettlement: decimal.RequireFromString(session.Data["price"]),
+			Asset:                 session.Data["asset"],
+			AssetAmount:           decimal.RequireFromString(session.Data["asset_amount"]),
+			SettlementAsset:       b.cfg.Market.SettlementCurrency,
+			GrossSettlementAmount: decimal.RequireFromString(session.Data["gross_settlement_amount"]),
+			SettlementAmount:      decimal.RequireFromString(session.Data["settlement_amount"]),
+			FeeAsset:              b.cfg.Market.SettlementCurrency,
+			FeeAmount:             decimal.RequireFromString(session.Data["fee_amount"]),
+			PriceInSettlement:     decimal.RequireFromString(session.Data["price"]),
 		}
 		tx, err := b.service.Buy(ctx, user.TelegramUserID, quote)
 		if err != nil {
@@ -293,7 +298,7 @@ func (b *Bot) handleSession(ctx context.Context, chatID int64, user domain.User,
 			return true, err
 		}
 		b.service.Sessions().Clear(user.ID)
-		return true, b.client.SendMessage(ctx, chatID, b.i18n.Text(locale, "buy.success", tx.ID, formatAmount(tx.AssetAmount, tx.AssetCode), tx.AssetCode, formatAmount(tx.SettlementAmount, tx.SettlementAsset), tx.SettlementAsset), b.mainMenu(locale, b.service.Sessions().IsAdmin(user.ID)))
+		return true, b.client.SendMessage(ctx, chatID, b.i18n.Text(locale, "buy.success", tx.ID, formatAmount(tx.AssetAmount, tx.AssetCode), tx.AssetCode, formatAmount(tx.FeeAmount, tx.FeeAssetCode), tx.FeeAssetCode, formatAmount(tx.SettlementAmount, tx.SettlementAsset), tx.SettlementAsset), b.mainMenu(locale, b.service.Sessions().IsAdmin(user.ID)))
 	case stepSellAmount:
 		amount, err := parsePositiveDecimal(text)
 		if err != nil {
@@ -305,13 +310,15 @@ func (b *Bot) handleSession(ctx context.Context, chatID int64, user domain.User,
 		}
 		session.Step = stepSellConfirm
 		session.Data["asset_amount"] = quote.AssetAmount.String()
+		session.Data["gross_settlement_amount"] = quote.GrossSettlementAmount.String()
 		session.Data["settlement_amount"] = quote.SettlementAmount.String()
+		session.Data["fee_amount"] = quote.FeeAmount.String()
 		session.Data["price"] = quote.PriceInSettlement.String()
 		b.service.Sessions().Set(user.ID, session)
 		return true, b.client.SendMessage(
 			ctx,
 			chatID,
-			b.i18n.Text(locale, "sell.review", quote.Asset, formatAmount(quote.PriceInSettlement, quote.SettlementAsset), quote.SettlementAsset, formatAmount(quote.AssetAmount, quote.Asset), quote.Asset, formatAmount(quote.SettlementAmount, quote.SettlementAsset), quote.SettlementAsset, quote.Source),
+			b.i18n.Text(locale, "sell.review", quote.Asset, formatAmount(quote.PriceInSettlement, quote.SettlementAsset), quote.SettlementAsset, formatAmount(quote.AssetAmount, quote.Asset), quote.Asset, formatAmount(quote.GrossSettlementAmount, quote.SettlementAsset), quote.SettlementAsset, formatAmount(quote.FeeAmount, quote.FeeAsset), quote.FeeAsset, formatAmount(quote.SettlementAmount, quote.SettlementAsset), quote.SettlementAsset, quote.Source),
 			b.confirmMenu(locale),
 		)
 	case stepSellConfirm:
@@ -319,11 +326,14 @@ func (b *Bot) handleSession(ctx context.Context, chatID int64, user domain.User,
 			return true, b.client.SendMessage(ctx, chatID, b.i18n.Text(locale, "sell.confirm_prompt"), b.confirmMenu(locale))
 		}
 		quote := domain.TradeQuote{
-			Asset:             session.Data["asset"],
-			AssetAmount:       decimal.RequireFromString(session.Data["asset_amount"]),
-			SettlementAsset:   b.cfg.Market.SettlementCurrency,
-			SettlementAmount:  decimal.RequireFromString(session.Data["settlement_amount"]),
-			PriceInSettlement: decimal.RequireFromString(session.Data["price"]),
+			Asset:                 session.Data["asset"],
+			AssetAmount:           decimal.RequireFromString(session.Data["asset_amount"]),
+			SettlementAsset:       b.cfg.Market.SettlementCurrency,
+			GrossSettlementAmount: decimal.RequireFromString(session.Data["gross_settlement_amount"]),
+			SettlementAmount:      decimal.RequireFromString(session.Data["settlement_amount"]),
+			FeeAsset:              b.cfg.Market.SettlementCurrency,
+			FeeAmount:             decimal.RequireFromString(session.Data["fee_amount"]),
+			PriceInSettlement:     decimal.RequireFromString(session.Data["price"]),
 		}
 		tx, err := b.service.Sell(ctx, user.TelegramUserID, quote)
 		if err != nil {
@@ -333,7 +343,7 @@ func (b *Bot) handleSession(ctx context.Context, chatID int64, user domain.User,
 			return true, err
 		}
 		b.service.Sessions().Clear(user.ID)
-		return true, b.client.SendMessage(ctx, chatID, b.i18n.Text(locale, "sell.success", tx.ID, formatAmount(tx.AssetAmount, tx.AssetCode), tx.AssetCode, formatAmount(tx.SettlementAmount, tx.SettlementAsset), tx.SettlementAsset), b.mainMenu(locale, b.service.Sessions().IsAdmin(user.ID)))
+		return true, b.client.SendMessage(ctx, chatID, b.i18n.Text(locale, "sell.success", tx.ID, formatAmount(tx.AssetAmount, tx.AssetCode), tx.AssetCode, formatAmount(tx.FeeAmount, tx.FeeAssetCode), tx.FeeAssetCode, formatAmount(tx.SettlementAmount, tx.SettlementAsset), tx.SettlementAsset), b.mainMenu(locale, b.service.Sessions().IsAdmin(user.ID)))
 	case stepDepositAmount:
 		amount, err := parsePositiveDecimal(text)
 		if err != nil {
@@ -412,10 +422,16 @@ func (b *Bot) handleSession(ctx context.Context, chatID int64, user domain.User,
 		if err != nil {
 			return true, b.client.SendMessage(ctx, chatID, b.validationMessage(locale, err), b.singleActionMenu(locale, "cancel"))
 		}
+		quote, err := b.service.QuoteTransfer(session.Data["asset"], amount)
+		if err != nil {
+			return true, err
+		}
 		session.Step = stepTransferConfirm
-		session.Data["amount"] = amount.String()
+		session.Data["amount"] = quote.AssetAmount.String()
+		session.Data["fee_amount"] = quote.FeeAmount.String()
+		session.Data["total_debit_amount"] = quote.TotalDebitAmount.String()
 		b.service.Sessions().Set(user.ID, session)
-		return true, b.client.SendMessage(ctx, chatID, b.i18n.Text(locale, "transfer.review", session.Data["recipient_name"], session.Data["asset"], formatAmount(amount, session.Data["asset"]), session.Data["asset"]), b.confirmMenu(locale))
+		return true, b.client.SendMessage(ctx, chatID, b.i18n.Text(locale, "transfer.review", session.Data["recipient_name"], quote.Asset, formatAmount(quote.AssetAmount, quote.Asset), quote.Asset, formatAmount(quote.FeeAmount, quote.FeeAsset), quote.FeeAsset, formatAmount(quote.TotalDebitAmount, quote.Asset), quote.Asset), b.confirmMenu(locale))
 	case stepTransferConfirm:
 		if !b.i18n.Matches(text, "confirm") {
 			return true, b.client.SendMessage(ctx, chatID, b.i18n.Text(locale, "transfer.confirm_prompt"), b.confirmMenu(locale))
@@ -424,7 +440,13 @@ func (b *Bot) handleSession(ctx context.Context, chatID int64, user domain.User,
 		if err != nil {
 			return true, err
 		}
-		tx, err := b.service.Transfer(ctx, user.TelegramUserID, recipientID, session.Data["asset"], decimal.RequireFromString(session.Data["amount"]))
+		tx, err := b.service.Transfer(ctx, user.TelegramUserID, recipientID, domain.TransferQuote{
+			Asset:            session.Data["asset"],
+			AssetAmount:      decimal.RequireFromString(session.Data["amount"]),
+			FeeAsset:         session.Data["asset"],
+			FeeAmount:        decimal.RequireFromString(session.Data["fee_amount"]),
+			TotalDebitAmount: decimal.RequireFromString(session.Data["total_debit_amount"]),
+		})
 		if err != nil {
 			if errors.Is(err, store.ErrInsufficientFunds) {
 				return true, b.client.SendMessage(ctx, chatID, b.i18n.Text(locale, "transfer.insufficient", session.Data["asset"]), b.mainMenu(locale, b.service.Sessions().IsAdmin(user.ID)))
@@ -432,7 +454,7 @@ func (b *Bot) handleSession(ctx context.Context, chatID int64, user domain.User,
 			return true, err
 		}
 		b.service.Sessions().Clear(user.ID)
-		return true, b.client.SendMessage(ctx, chatID, b.i18n.Text(locale, "transfer.success", tx.ID, session.Data["recipient_name"], formatAmount(tx.AssetAmount, tx.AssetCode), tx.AssetCode), b.mainMenu(locale, b.service.Sessions().IsAdmin(user.ID)))
+		return true, b.client.SendMessage(ctx, chatID, b.i18n.Text(locale, "transfer.success", tx.ID, session.Data["recipient_name"], formatAmount(tx.AssetAmount, tx.AssetCode), tx.AssetCode, formatAmount(tx.FeeAmount, tx.FeeAssetCode), tx.FeeAssetCode, formatAmount(tx.SettlementAmount, tx.SettlementAsset), tx.SettlementAsset), b.mainMenu(locale, b.service.Sessions().IsAdmin(user.ID)))
 	case stepAdminApprovePick:
 		if !b.service.Sessions().IsAdmin(user.ID) {
 			b.service.Sessions().Clear(user.ID)
@@ -841,13 +863,17 @@ func (b *Bot) tmnHelper(locale string) string {
 func (b *Bot) formatTransaction(locale string, tx domain.Transaction) string {
 	timestamp := tx.CreatedAt.Local().Format("2006-01-02 15:04")
 	status := b.localizeStatus(locale, tx.Status)
+	fee := ""
+	if tx.FeeAmount.GreaterThan(decimal.Zero) && strings.TrimSpace(tx.FeeAssetCode) != "" {
+		fee = fmt.Sprintf(" | %s %s %s", b.i18n.Text(locale, "tx.fee"), formatAmount(tx.FeeAmount, tx.FeeAssetCode), tx.FeeAssetCode)
+	}
 	switch tx.Kind {
 	case domain.TransactionBuy:
-		return fmt.Sprintf("- %s | %s | %s %s | %s %s %s | %s", timestamp, b.i18n.Text(locale, "tx.buy"), formatAmount(tx.AssetAmount, tx.AssetCode), tx.AssetCode, b.i18n.Text(locale, "tx.spent"), formatAmount(tx.SettlementAmount, tx.SettlementAsset), tx.SettlementAsset, status)
+		return fmt.Sprintf("- %s | %s | %s %s | %s %s %s%s | %s", timestamp, b.i18n.Text(locale, "tx.buy"), formatAmount(tx.AssetAmount, tx.AssetCode), tx.AssetCode, b.i18n.Text(locale, "tx.spent"), formatAmount(tx.SettlementAmount, tx.SettlementAsset), tx.SettlementAsset, fee, status)
 	case domain.TransactionSell:
-		return fmt.Sprintf("- %s | %s | %s %s | %s %s %s | %s", timestamp, b.i18n.Text(locale, "tx.sell"), formatAmount(tx.AssetAmount, tx.AssetCode), tx.AssetCode, b.i18n.Text(locale, "tx.received"), formatAmount(tx.SettlementAmount, tx.SettlementAsset), tx.SettlementAsset, status)
+		return fmt.Sprintf("- %s | %s | %s %s | %s %s %s%s | %s", timestamp, b.i18n.Text(locale, "tx.sell"), formatAmount(tx.AssetAmount, tx.AssetCode), tx.AssetCode, b.i18n.Text(locale, "tx.received"), formatAmount(tx.SettlementAmount, tx.SettlementAsset), tx.SettlementAsset, fee, status)
 	case domain.TransactionTransferOut:
-		return fmt.Sprintf("- %s | %s | %s %s | %s", timestamp, b.i18n.Text(locale, "tx.transfer_sent"), formatAmount(tx.AssetAmount, tx.AssetCode), tx.AssetCode, status)
+		return fmt.Sprintf("- %s | %s | %s %s%s | %s", timestamp, b.i18n.Text(locale, "tx.transfer_sent"), formatAmount(tx.AssetAmount, tx.AssetCode), tx.AssetCode, fee, status)
 	case domain.TransactionTransferIn:
 		return fmt.Sprintf("- %s | %s | %s %s | %s", timestamp, b.i18n.Text(locale, "tx.transfer_received"), formatAmount(tx.AssetAmount, tx.AssetCode), tx.AssetCode, status)
 	case domain.TransactionDeposit:

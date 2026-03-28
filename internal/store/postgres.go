@@ -369,7 +369,8 @@ func (s *PostgresStore) ListPendingDeposits(ctx context.Context, limit int) ([]d
 	rows, err := s.pool.QueryContext(ctx, `
 		SELECT
 			t.id, t.kind, t.user_id, t.counterparty_user_id, t.asset_code, t.asset_amount,
-			t.settlement_asset_code, t.settlement_amount, t.price, t.reference, t.status, t.description, t.created_at,
+			t.settlement_asset_code, t.settlement_amount, t.fee_asset_code, t.fee_amount,
+			t.price, t.reference, t.status, t.description, t.created_at,
 			u.first_name, u.last_name, u.username, u.share_code
 		FROM transactions t
 		JOIN users u ON u.id = t.user_id
@@ -388,6 +389,7 @@ func (s *PostgresStore) ListPendingDeposits(ctx context.Context, limit int) ([]d
 		var counterparty sql.NullInt64
 		var assetAmount string
 		var settlementAmount string
+		var feeAmount string
 		var price string
 		var firstName string
 		var lastName string
@@ -401,6 +403,8 @@ func (s *PostgresStore) ListPendingDeposits(ctx context.Context, limit int) ([]d
 			&assetAmount,
 			&item.Transaction.SettlementAsset,
 			&settlementAmount,
+			&item.Transaction.FeeAssetCode,
+			&feeAmount,
 			&price,
 			&item.Transaction.Reference,
 			&item.Transaction.Status,
@@ -422,6 +426,10 @@ func (s *PostgresStore) ListPendingDeposits(ctx context.Context, limit int) ([]d
 			return nil, err
 		}
 		item.Transaction.SettlementAmount, err = decimal.NewFromString(settlementAmount)
+		if err != nil {
+			return nil, err
+		}
+		item.Transaction.FeeAmount, err = decimal.NewFromString(feeAmount)
 		if err != nil {
 			return nil, err
 		}
@@ -451,10 +459,11 @@ func (s *PostgresStore) ApprovePendingDeposit(ctx context.Context, transactionID
 	var transaction domain.Transaction
 	var assetAmount string
 	var settlementAmount string
+	var feeAmount string
 	var price string
 	var counterparty sql.NullInt64
 	err = tx.QueryRowContext(ctx, `
-		SELECT id, kind, user_id, counterparty_user_id, asset_code, asset_amount, settlement_asset_code, settlement_amount, price, reference, status, description, created_at
+		SELECT id, kind, user_id, counterparty_user_id, asset_code, asset_amount, settlement_asset_code, settlement_amount, fee_asset_code, fee_amount, price, reference, status, description, created_at
 		FROM transactions
 		WHERE id = $1
 		FOR UPDATE
@@ -467,6 +476,8 @@ func (s *PostgresStore) ApprovePendingDeposit(ctx context.Context, transactionID
 		&assetAmount,
 		&transaction.SettlementAsset,
 		&settlementAmount,
+		&transaction.FeeAssetCode,
+		&feeAmount,
 		&price,
 		&transaction.Reference,
 		&transaction.Status,
@@ -489,6 +500,10 @@ func (s *PostgresStore) ApprovePendingDeposit(ctx context.Context, transactionID
 		return domain.Transaction{}, err
 	}
 	transaction.SettlementAmount, err = decimal.NewFromString(settlementAmount)
+	if err != nil {
+		return domain.Transaction{}, err
+	}
+	transaction.FeeAmount, err = decimal.NewFromString(feeAmount)
 	if err != nil {
 		return domain.Transaction{}, err
 	}
@@ -562,6 +577,8 @@ func (s *PostgresStore) Buy(ctx context.Context, userID int64, quote domain.Trad
 		AssetAmount:      quote.AssetAmount,
 		SettlementAsset:  quote.SettlementAsset,
 		SettlementAmount: quote.SettlementAmount,
+		FeeAssetCode:     quote.FeeAsset,
+		FeeAmount:        quote.FeeAmount,
 		Price:            quote.PriceInSettlement,
 		Status:           "completed",
 		Description:      fmt.Sprintf("Bought %s with %s", quote.Asset, quote.SettlementAsset),
@@ -614,6 +631,8 @@ func (s *PostgresStore) Sell(ctx context.Context, userID int64, quote domain.Tra
 		AssetAmount:      quote.AssetAmount,
 		SettlementAsset:  quote.SettlementAsset,
 		SettlementAmount: quote.SettlementAmount,
+		FeeAssetCode:     quote.FeeAsset,
+		FeeAmount:        quote.FeeAmount,
 		Price:            quote.PriceInSettlement,
 		Status:           "completed",
 		Description:      fmt.Sprintf("Sold %s for %s", quote.Asset, quote.SettlementAsset),
@@ -628,60 +647,64 @@ func (s *PostgresStore) Sell(ctx context.Context, userID int64, quote domain.Tra
 	return transaction, nil
 }
 
-func (s *PostgresStore) Transfer(ctx context.Context, senderUserID, recipientUserID int64, asset string, amount decimal.Decimal) (domain.Transaction, error) {
+func (s *PostgresStore) Transfer(ctx context.Context, senderUserID, recipientUserID int64, quote domain.TransferQuote) (domain.Transaction, error) {
 	tx, err := s.pool.BeginTx(ctx, nil)
 	if err != nil {
 		return domain.Transaction{}, err
 	}
 	defer tx.Rollback()
 
-	if err := s.ensureBalanceRow(ctx, tx, senderUserID, asset); err != nil {
+	if err := s.ensureBalanceRow(ctx, tx, senderUserID, quote.Asset); err != nil {
 		return domain.Transaction{}, err
 	}
-	if err := s.ensureBalanceRow(ctx, tx, recipientUserID, asset); err != nil {
+	if err := s.ensureBalanceRow(ctx, tx, recipientUserID, quote.Asset); err != nil {
 		return domain.Transaction{}, err
 	}
 
-	senderBalance, err := s.lockBalance(ctx, tx, senderUserID, asset)
+	senderBalance, err := s.lockBalance(ctx, tx, senderUserID, quote.Asset)
 	if err != nil {
 		return domain.Transaction{}, err
 	}
-	if senderBalance.LessThan(amount) {
+	if senderBalance.LessThan(quote.TotalDebitAmount) {
 		return domain.Transaction{}, ErrInsufficientFunds
 	}
-	recipientBalance, err := s.lockBalance(ctx, tx, recipientUserID, asset)
+	recipientBalance, err := s.lockBalance(ctx, tx, recipientUserID, quote.Asset)
 	if err != nil {
 		return domain.Transaction{}, err
 	}
-	if err := s.setBalance(ctx, tx, senderUserID, asset, senderBalance.Sub(amount)); err != nil {
+	if err := s.setBalance(ctx, tx, senderUserID, quote.Asset, senderBalance.Sub(quote.TotalDebitAmount)); err != nil {
 		return domain.Transaction{}, err
 	}
-	if err := s.setBalance(ctx, tx, recipientUserID, asset, recipientBalance.Add(amount)); err != nil {
+	if err := s.setBalance(ctx, tx, recipientUserID, quote.Asset, recipientBalance.Add(quote.AssetAmount)); err != nil {
 		return domain.Transaction{}, err
 	}
 
 	senderTx, err := s.insertTransaction(ctx, tx, domain.Transaction{
-		Kind:            domain.TransactionTransferOut,
-		UserID:          senderUserID,
-		CounterpartyID:  &recipientUserID,
-		AssetCode:       asset,
-		AssetAmount:     amount,
-		SettlementAsset: asset,
-		Status:          "completed",
-		Description:     "Internal transfer sent",
+		Kind:             domain.TransactionTransferOut,
+		UserID:           senderUserID,
+		CounterpartyID:   &recipientUserID,
+		AssetCode:        quote.Asset,
+		AssetAmount:      quote.AssetAmount,
+		SettlementAsset:  quote.Asset,
+		SettlementAmount: quote.TotalDebitAmount,
+		FeeAssetCode:     quote.FeeAsset,
+		FeeAmount:        quote.FeeAmount,
+		Status:           "completed",
+		Description:      "Internal transfer sent",
 	})
 	if err != nil {
 		return domain.Transaction{}, err
 	}
 	_, err = s.insertTransaction(ctx, tx, domain.Transaction{
-		Kind:            domain.TransactionTransferIn,
-		UserID:          recipientUserID,
-		CounterpartyID:  &senderUserID,
-		AssetCode:       asset,
-		AssetAmount:     amount,
-		SettlementAsset: asset,
-		Status:          "completed",
-		Description:     "Internal transfer received",
+		Kind:             domain.TransactionTransferIn,
+		UserID:           recipientUserID,
+		CounterpartyID:   &senderUserID,
+		AssetCode:        quote.Asset,
+		AssetAmount:      quote.AssetAmount,
+		SettlementAsset:  quote.Asset,
+		SettlementAmount: quote.AssetAmount,
+		Status:           "completed",
+		Description:      "Internal transfer received",
 	})
 	if err != nil {
 		return domain.Transaction{}, err
@@ -818,7 +841,7 @@ func (s *PostgresStore) listContacts(ctx context.Context, userID int64) ([]domai
 
 func (s *PostgresStore) listTransactions(ctx context.Context, userID int64, limit int) ([]domain.Transaction, error) {
 	rows, err := s.pool.QueryContext(ctx, `
-		SELECT id, kind, user_id, counterparty_user_id, asset_code, asset_amount, settlement_asset_code, settlement_amount, price, reference, status, description, created_at
+		SELECT id, kind, user_id, counterparty_user_id, asset_code, asset_amount, settlement_asset_code, settlement_amount, fee_asset_code, fee_amount, price, reference, status, description, created_at
 		FROM transactions
 		WHERE user_id = $1
 		ORDER BY created_at DESC
@@ -835,6 +858,7 @@ func (s *PostgresStore) listTransactions(ctx context.Context, userID int64, limi
 		var counterparty sql.NullInt64
 		var assetAmount string
 		var settlementAmount string
+		var feeAmount string
 		var price string
 		var reference string
 		if err := rows.Scan(
@@ -846,6 +870,8 @@ func (s *PostgresStore) listTransactions(ctx context.Context, userID int64, limi
 			&assetAmount,
 			&tx.SettlementAsset,
 			&settlementAmount,
+			&tx.FeeAssetCode,
+			&feeAmount,
 			&price,
 			&reference,
 			&tx.Status,
@@ -864,6 +890,10 @@ func (s *PostgresStore) listTransactions(ctx context.Context, userID int64, limi
 			return nil, err
 		}
 		tx.SettlementAmount, err = decimal.NewFromString(settlementAmount)
+		if err != nil {
+			return nil, err
+		}
+		tx.FeeAmount, err = decimal.NewFromString(feeAmount)
 		if err != nil {
 			return nil, err
 		}
@@ -924,9 +954,10 @@ func (s *PostgresStore) insertTransaction(ctx context.Context, tx *sql.Tx, input
 	err := tx.QueryRowContext(ctx, `
 		INSERT INTO transactions (
 			id, kind, user_id, counterparty_user_id, asset_code, asset_amount,
-			settlement_asset_code, settlement_amount, price, reference, status, description
+			settlement_asset_code, settlement_amount, fee_asset_code, fee_amount,
+			price, reference, status, description
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 		RETURNING created_at
 	`,
 		input.ID,
@@ -937,6 +968,8 @@ func (s *PostgresStore) insertTransaction(ctx context.Context, tx *sql.Tx, input
 		input.AssetAmount.String(),
 		input.SettlementAsset,
 		input.SettlementAmount.String(),
+		input.FeeAssetCode,
+		input.FeeAmount.String(),
 		input.Price.String(),
 		input.Reference,
 		input.Status,
@@ -1009,6 +1042,8 @@ CREATE TABLE IF NOT EXISTS transactions (
 	asset_amount NUMERIC(30, 12) NOT NULL DEFAULT 0,
 	settlement_asset_code TEXT NOT NULL DEFAULT '',
 	settlement_amount NUMERIC(30, 12) NOT NULL DEFAULT 0,
+	fee_asset_code TEXT NOT NULL DEFAULT '',
+	fee_amount NUMERIC(30, 12) NOT NULL DEFAULT 0,
 	price NUMERIC(30, 12) NOT NULL DEFAULT 0,
 	reference TEXT NOT NULL DEFAULT '',
 	status TEXT NOT NULL DEFAULT 'completed',
@@ -1023,5 +1058,7 @@ CREATE TABLE IF NOT EXISTS app_settings (
 );
 
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS reference TEXT NOT NULL DEFAULT '';
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS fee_asset_code TEXT NOT NULL DEFAULT '';
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS fee_amount NUMERIC(30, 12) NOT NULL DEFAULT 0;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS locale TEXT NOT NULL DEFAULT 'fa';
 `

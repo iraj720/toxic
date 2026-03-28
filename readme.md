@@ -24,6 +24,7 @@ This repository now contains a working Go implementation with:
 - Guided coin buy/sell, receipt-based deposit, contact, and transfer flows
 - KuCoin-backed live pricing behind a swappable market interface with a 20-second cache
 - Dynamic quote-to-settlement rate override managed by admins with config-backed default fallback
+- Config-driven transaction fee support for buys, sells, and internal transfers with a 2% default
 - Fully separated localization layer with Persian default and English support
 - YAML-based runtime configuration
 - Docker Compose for local PostgreSQL
@@ -44,6 +45,7 @@ Set at least:
 - `database.address`
 - `market.coins`
 - `market.quote_to_settlement_rate` or `market.usdt_to_tmn_rate`
+- `fees.transaction_percent`
 - `providers.kucoin.base_url`
 
 ### 3. Start PostgreSQL
@@ -110,6 +112,7 @@ as an enterprise financial platform while staying fast, simple, and accessible.
 - Buy crypto using TMN balance
 - Sell crypto back to TMN
 - TMN deposit flow for increasing available balance
+- Config-driven transaction fees for coin buys, sells, and internal transfers
 - TMN withdrawal request flow with temporary service-unavailable handling after confirmation
 - Portfolio dashboard with balances and estimated values
 - Internal crypto transfers between platform users
@@ -318,6 +321,9 @@ app:
 admin:
   auth_code: "12345"
 
+fees:
+  transaction_percent: "2"
+
 telegram:
   bot_token: "YOUR_TELEGRAM_BOT_TOKEN"
   base_url: "https://api.telegram.org"
@@ -461,6 +467,9 @@ The current bot flow is menu-driven and optimized for clarity:
 - TMN to USDT pricing is configured in `config.yaml` as the default fallback so
   the bot can convert KuCoin USDT prices into TMN values, while admins can
   override the active runtime rate without editing the config file.
+- Transaction fees for buys, sells, and internal transfers are configured in
+  `config.yaml`, default to 2%, and are applied in TMN for buys and sells and
+  in the transferred coin for internal transfers.
 - Localization is fully separated from business logic in its own package, with
   Persian as the default locale and English as an alternative.
 - TMN deposit is currently implemented as a receipt-based pending workflow: the

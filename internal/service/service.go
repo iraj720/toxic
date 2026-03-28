@@ -37,7 +37,7 @@ type Store interface {
 	Deposit(ctx context.Context, userID int64, asset string, amount decimal.Decimal) (domain.Transaction, error)
 	Buy(ctx context.Context, userID int64, quote domain.TradeQuote) (domain.Transaction, error)
 	Sell(ctx context.Context, userID int64, quote domain.TradeQuote) (domain.Transaction, error)
-	Transfer(ctx context.Context, senderUserID, recipientUserID int64, asset string, amount decimal.Decimal) (domain.Transaction, error)
+	Transfer(ctx context.Context, senderUserID, recipientUserID int64, quote domain.TransferQuote) (domain.Transaction, error)
 	GetQuoteToSettlementRate(ctx context.Context) (decimal.Decimal, bool, error)
 	SetQuoteToSettlementRate(ctx context.Context, rate decimal.Decimal) error
 }
@@ -101,6 +101,10 @@ func (s *Service) EnabledCoinSymbols() []string {
 		out = append(out, coin.Symbol)
 	}
 	return out
+}
+
+func (s *Service) TransactionFeePercent() decimal.Decimal {
+	return s.cfg.TransactionFeePercentDecimal()
 }
 
 func (s *Service) CurrentQuoteToSettlementRate(ctx context.Context) (domain.QuoteToSettlementRate, error) {
@@ -202,15 +206,21 @@ func (s *Service) QuoteBuy(ctx context.Context, asset string, settlementAmount d
 		return domain.TradeQuote{}, fmt.Errorf("price is not positive for %s", asset)
 	}
 
+	feeAmount := settlementAmount.Mul(s.cfg.TransactionFeeRateDecimal())
+	totalSettlementAmount := settlementAmount.Add(feeAmount)
+
 	return domain.TradeQuote{
-		Asset:             asset,
-		AssetAmount:       settlementAmount.Div(price.PriceInSettlement),
-		SettlementAsset:   s.cfg.Market.SettlementCurrency,
-		SettlementAmount:  settlementAmount,
-		PriceInSettlement: price.PriceInSettlement,
-		PriceInQuote:      price.PriceInQuote,
-		QuoteCurrency:     price.QuoteCurrency,
-		Source:            price.Source,
+		Asset:                 asset,
+		AssetAmount:           settlementAmount.Div(price.PriceInSettlement),
+		SettlementAsset:       s.cfg.Market.SettlementCurrency,
+		GrossSettlementAmount: settlementAmount,
+		SettlementAmount:      totalSettlementAmount,
+		FeeAsset:              s.cfg.Market.SettlementCurrency,
+		FeeAmount:             feeAmount,
+		PriceInSettlement:     price.PriceInSettlement,
+		PriceInQuote:          price.PriceInQuote,
+		QuoteCurrency:         price.QuoteCurrency,
+		Source:                price.Source,
 	}, nil
 }
 
@@ -228,15 +238,41 @@ func (s *Service) QuoteSell(ctx context.Context, asset string, assetAmount decim
 		return domain.TradeQuote{}, err
 	}
 
+	grossSettlementAmount := assetAmount.Mul(price.PriceInSettlement)
+	feeAmount := grossSettlementAmount.Mul(s.cfg.TransactionFeeRateDecimal())
+
 	return domain.TradeQuote{
-		Asset:             asset,
-		AssetAmount:       assetAmount,
-		SettlementAsset:   s.cfg.Market.SettlementCurrency,
-		SettlementAmount:  assetAmount.Mul(price.PriceInSettlement),
-		PriceInSettlement: price.PriceInSettlement,
-		PriceInQuote:      price.PriceInQuote,
-		QuoteCurrency:     price.QuoteCurrency,
-		Source:            price.Source,
+		Asset:                 asset,
+		AssetAmount:           assetAmount,
+		SettlementAsset:       s.cfg.Market.SettlementCurrency,
+		GrossSettlementAmount: grossSettlementAmount,
+		SettlementAmount:      grossSettlementAmount.Sub(feeAmount),
+		FeeAsset:              s.cfg.Market.SettlementCurrency,
+		FeeAmount:             feeAmount,
+		PriceInSettlement:     price.PriceInSettlement,
+		PriceInQuote:          price.PriceInQuote,
+		QuoteCurrency:         price.QuoteCurrency,
+		Source:                price.Source,
+	}, nil
+}
+
+func (s *Service) QuoteTransfer(asset string, amount decimal.Decimal) (domain.TransferQuote, error) {
+	asset = strings.ToUpper(strings.TrimSpace(asset))
+	if amount.LessThanOrEqual(decimal.Zero) {
+		return domain.TransferQuote{}, ErrInvalidAmount
+	}
+	if !s.isEnabledAsset(asset) {
+		return domain.TransferQuote{}, ErrUnknownAsset
+	}
+
+	feeAmount := amount.Mul(s.cfg.TransactionFeeRateDecimal())
+
+	return domain.TransferQuote{
+		Asset:            asset,
+		AssetAmount:      amount,
+		FeeAsset:         asset,
+		FeeAmount:        feeAmount,
+		TotalDebitAmount: amount.Add(feeAmount),
 	}, nil
 }
 
@@ -309,18 +345,18 @@ func (s *Service) ResolveRecipient(ctx context.Context, telegramUserID int64, re
 	return s.store.ResolveRecipient(ctx, user.ID, reference)
 }
 
-func (s *Service) Transfer(ctx context.Context, telegramUserID int64, recipientUserID int64, asset string, amount decimal.Decimal) (domain.Transaction, error) {
-	if amount.LessThanOrEqual(decimal.Zero) {
+func (s *Service) Transfer(ctx context.Context, telegramUserID int64, recipientUserID int64, quote domain.TransferQuote) (domain.Transaction, error) {
+	if quote.AssetAmount.LessThanOrEqual(decimal.Zero) {
 		return domain.Transaction{}, ErrInvalidAmount
 	}
-	if !s.isEnabledAsset(asset) && strings.ToUpper(asset) != s.cfg.Market.SettlementCurrency {
+	if !s.isEnabledAsset(quote.Asset) && strings.ToUpper(quote.Asset) != s.cfg.Market.SettlementCurrency {
 		return domain.Transaction{}, ErrUnknownAsset
 	}
 	user, err := s.store.GetUserByTelegramID(ctx, telegramUserID)
 	if err != nil {
 		return domain.Transaction{}, err
 	}
-	return s.store.Transfer(ctx, user.ID, recipientUserID, strings.ToUpper(asset), amount)
+	return s.store.Transfer(ctx, user.ID, recipientUserID, quote)
 }
 
 func (s *Service) getSettlementPrice(ctx context.Context, asset string) (domain.MarketPrice, error) {
