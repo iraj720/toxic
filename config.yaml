@@ -1,0 +1,37 @@
+app:
+  name: exchange-bot
+  env: development
+
+admin:
+  auth_code: "12345"
+
+telegram:
+  bot_token: "8760630199:AAFHsDZfeOlDnQtPZBhEPv2i0tuBHz8JDSg"
+  base_url: "https://api.telegram.org"
+  poll_timeout_seconds: 30
+
+database:
+  address: "postgres://postgres:postgres@localhost:5433/exchange?sslmode=disable"
+
+deposit:
+  card_number: "5041-9918-0000-0000"
+
+market:
+  provider: kucoin
+  quote_currency: USDT
+  settlement_currency: TMN
+  usdt_to_tmn_rate: "155"
+  coins:
+    - symbol: BTC
+      name: Bitcoin
+    - symbol: ETH
+      name: Ethereum
+    - symbol: USDT
+      name: Tether
+    - symbol: TON
+      name: Toncoin
+
+providers:
+  kucoin:
+    base_url: "https://api.kucoin.com"
+    timeout_seconds: 10
