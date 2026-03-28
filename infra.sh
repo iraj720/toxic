@@ -7,6 +7,7 @@ CONFIG_PATH="${CONFIG_PATH:-$ROOT_DIR/config.yaml}"
 GO_VERSION="${GO_VERSION:-$(awk '/^go / { print $2; exit }' "$ROOT_DIR/go.mod")}"
 GOCACHE_DIR="${GOCACHE:-$ROOT_DIR/.gocache}"
 GOMODCACHE_DIR="${GOMODCACHE:-$ROOT_DIR/.gomodcache}"
+BINARY_PATH="${BINARY_PATH:-$ROOT_DIR/exchangebot}"
 
 cd "$ROOT_DIR"
 
@@ -183,17 +184,33 @@ warm_go_modules() {
     go mod download
 }
 
+build_bot_binary() {
+  echo "Building exchange bot binary..."
+  mkdir -p "$GOCACHE_DIR" "$GOMODCACHE_DIR"
+  env \
+    PATH="/usr/local/go/bin:$PATH" \
+    GOCACHE="$GOCACHE_DIR" \
+    GOMODCACHE="$GOMODCACHE_DIR" \
+    GOSUMDB="${GOSUMDB:-off}" \
+    GOFLAGS="${GOFLAGS:--mod=mod}" \
+    go build -o "$BINARY_PATH" ./cmd/exchangebot
+  chmod +x "$BINARY_PATH"
+}
+
 main() {
   install_system_packages
   install_go
   configure_postgres_service
   configure_database_access
   warm_go_modules
+  build_bot_binary
 
   echo
   echo "Infrastructure bootstrap completed."
   echo "PostgreSQL is configured for ${DB_HOST}:${DB_PORT}/${DB_NAME}."
   echo "You can now run ./run.sh"
+  echo "Built bot binary: $BINARY_PATH"
+  echo "If this shell still cannot find Go, run: source /etc/profile.d/exchange-go.sh"
 }
 
 main "$@"
