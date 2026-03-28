@@ -129,7 +129,7 @@ if [[ -n "$TARGET_GOARCH" ]]; then
   BUILD_ENV+=(GOARCH="$TARGET_GOARCH")
 fi
 
-env "${BUILD_ENV[@]}" "$GO_BIN" build -o "$BINARY_PATH" ./cmd/exchangebot
+env "${BUILD_ENV[@]}" "$GO_BIN" build -buildvcs=false -o "$BINARY_PATH" ./cmd/exchangebot
 
 echo "Starting Telegram exchange bot..."
 echo "Using config: $CONFIG_PATH"
