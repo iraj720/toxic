@@ -4,8 +4,10 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SERVICE_NAME="${SERVICE_NAME:-exchangebot}"
-SERVICE_USER="${SERVICE_USER:-exchangebot}"
-SERVICE_GROUP="${SERVICE_GROUP:-$SERVICE_USER}"
+DEFAULT_SERVICE_USER="$(id -un)"
+DEFAULT_SERVICE_GROUP="$(id -gn "$DEFAULT_SERVICE_USER" 2>/dev/null || echo "$DEFAULT_SERVICE_USER")"
+SERVICE_USER="${SERVICE_USER:-$DEFAULT_SERVICE_USER}"
+SERVICE_GROUP="${SERVICE_GROUP:-$DEFAULT_SERVICE_GROUP}"
 WORK_DIR="${WORK_DIR:-$ROOT_DIR}"
 CONFIG_PATH="${CONFIG_PATH:-$ROOT_DIR/config.yaml}"
 SERVICE_PATH="/etc/systemd/system/${SERVICE_NAME}.service"
@@ -27,6 +29,20 @@ run_root() {
     return
   fi
   "$@"
+}
+
+run_as_service_user() {
+  if [[ "$(id -un)" == "$SERVICE_USER" ]]; then
+    "$@"
+    return
+  fi
+
+  if command -v runuser >/dev/null 2>&1; then
+    run_root runuser -u "$SERVICE_USER" -- "$@"
+    return
+  fi
+
+  run_root sudo -u "$SERVICE_USER" "$@"
 }
 
 usage() {
@@ -79,8 +95,16 @@ ensure_paths() {
     exit 1
   fi
 
-  run_root mkdir -p "$WORK_DIR"
-  run_root chown -R "${SERVICE_USER}:${SERVICE_GROUP}" "$WORK_DIR"
+  if [[ ! -d "$WORK_DIR" ]]; then
+    echo "working directory not found: $WORK_DIR" >&2
+    exit 1
+  fi
+
+  if ! run_as_service_user test -x "$WORK_DIR"; then
+    echo "working directory is not accessible by ${SERVICE_USER}: $WORK_DIR" >&2
+    echo "Use SERVICE_USER=root or move the project to a directory the service user can access." >&2
+    exit 1
+  fi
 }
 
 install_service() {
