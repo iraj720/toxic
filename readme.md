@@ -58,6 +58,14 @@ docker-compose up -d postgres
 go run ./cmd/exchangebot -config config.yaml
 ```
 
+To keep the bot running after you disconnect from a server, install it as a
+`systemd` service with:
+
+```bash
+./process.sh install
+./process.sh start
+```
+
 ### 5. Start using it in Telegram
 
 - Open your bot chat

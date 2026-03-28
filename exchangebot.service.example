@@ -1,0 +1,20 @@
+[Unit]
+Description=Telegram Exchange Bot
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=exchangebot
+Group=exchangebot
+WorkingDirectory=/opt/exchange
+Environment=CONFIG_PATH=/opt/exchange/config.yaml
+ExecStart=/bin/bash /opt/exchange/run.sh
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
