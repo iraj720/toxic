@@ -118,7 +118,7 @@ func (b *Bot) handleMessage(ctx context.Context, msg *Message) error {
 		return b.client.SendMessage(
 			ctx,
 			msg.Chat.ID,
-			b.i18n.Text(locale, "welcome.message", user.DisplayName(), user.ShareCode, b.cfg.Market.SettlementCurrency),
+			b.i18n.Text(locale, "welcome.message", user.DisplayName(), user.ShareCode, b.displayAsset(locale, b.cfg.Market.SettlementCurrency)),
 			b.mainMenu(locale, b.service.Sessions().IsAdmin(user.ID)),
 		)
 	}
@@ -160,10 +160,10 @@ func (b *Bot) handleMessage(ctx context.Context, msg *Message) error {
 			return b.client.SendMessage(ctx, msg.Chat.ID, b.i18n.Text(locale, "deposit.card_missing"), b.mainMenu(locale, b.service.Sessions().IsAdmin(user.ID)))
 		}
 		b.service.Sessions().Set(user.ID, service.Session{Step: stepDepositAmount, Data: map[string]string{}})
-		return b.client.SendMessage(ctx, msg.Chat.ID, b.i18n.Text(locale, "deposit.ask_amount", b.cfg.Market.SettlementCurrency), b.singleActionMenu(locale, "cancel"))
+		return b.client.SendMessage(ctx, msg.Chat.ID, b.i18n.Text(locale, "deposit.ask_amount", b.displayAsset(locale, b.cfg.Market.SettlementCurrency)), b.singleActionMenu(locale, "cancel"))
 	case b.i18n.Matches(text, "withdraw"):
 		b.service.Sessions().Set(user.ID, service.Session{Step: stepWithdrawAmount, Data: map[string]string{}})
-		return b.client.SendMessage(ctx, msg.Chat.ID, b.i18n.Text(locale, "withdraw.ask_amount", b.cfg.Market.SettlementCurrency), b.singleActionMenu(locale, "cancel"))
+		return b.client.SendMessage(ctx, msg.Chat.ID, b.i18n.Text(locale, "withdraw.ask_amount", b.displayAsset(locale, b.cfg.Market.SettlementCurrency)), b.singleActionMenu(locale, "cancel"))
 	case b.i18n.Matches(text, "transaction_history"):
 		return b.sendTransactions(ctx, msg.Chat.ID, user.TelegramUserID)
 	case b.i18n.Matches(text, "add_contact"):
@@ -187,7 +187,7 @@ func (b *Bot) handleMessage(ctx context.Context, msg *Message) error {
 			return b.client.SendMessage(ctx, msg.Chat.ID, b.i18n.Text(locale, "admin.unauthorized"), b.mainMenu(locale, false))
 		}
 		b.service.Sessions().Set(user.ID, service.Session{Step: stepAdminRateAmount, Data: map[string]string{}})
-		return b.client.SendMessage(ctx, msg.Chat.ID, b.i18n.Text(locale, "admin.rate_prompt", b.cfg.Market.QuoteCurrency, b.cfg.Market.SettlementCurrency), b.singleActionMenu(locale, "cancel"))
+		return b.client.SendMessage(ctx, msg.Chat.ID, b.i18n.Text(locale, "admin.rate_prompt", b.cfg.Market.QuoteCurrency, b.displayAsset(locale, b.cfg.Market.SettlementCurrency)), b.singleActionMenu(locale, "cancel"))
 	case b.i18n.Matches(text, "logout_admin"):
 		b.service.Sessions().RevokeAdmin(user.ID)
 		b.service.Sessions().Clear(user.ID)
@@ -246,7 +246,7 @@ func (b *Bot) handleSession(ctx context.Context, chatID int64, user domain.User,
 		case b.i18n.Matches(text, "buy"):
 			session.Step = stepBuyAmount
 			b.service.Sessions().Set(user.ID, session)
-			return true, b.client.SendMessage(ctx, chatID, b.i18n.Text(locale, "buy.ask_amount", b.cfg.Market.SettlementCurrency, session.Data["asset"]), b.singleActionMenu(locale, "cancel"))
+			return true, b.client.SendMessage(ctx, chatID, b.i18n.Text(locale, "buy.ask_amount", b.displayAsset(locale, b.cfg.Market.SettlementCurrency), session.Data["asset"]), b.singleActionMenu(locale, "cancel"))
 		case b.i18n.Matches(text, "sell"):
 			session.Step = stepSellAmount
 			b.service.Sessions().Set(user.ID, session)
@@ -270,12 +270,15 @@ func (b *Bot) handleSession(ctx context.Context, chatID int64, user domain.User,
 		session.Data["fee_amount"] = quote.FeeAmount.String()
 		session.Data["price"] = quote.PriceInSettlement.String()
 		b.service.Sessions().Set(user.ID, session)
-		return true, b.client.SendMessage(
-			ctx,
-			chatID,
-			b.i18n.Text(locale, "buy.review", quote.Asset, formatAmount(quote.PriceInSettlement, quote.SettlementAsset), quote.SettlementAsset, formatAmount(quote.GrossSettlementAmount, quote.SettlementAsset), quote.SettlementAsset, formatAmount(quote.FeeAmount, quote.FeeAsset), quote.FeeAsset, formatAmount(quote.SettlementAmount, quote.SettlementAsset), quote.SettlementAsset, formatAmount(quote.AssetAmount, quote.Asset), quote.Asset, quote.Source),
-			b.confirmMenu(locale),
+		lines := []string{
+			b.i18n.Text(locale, "buy.review", quote.Asset, formatAmount(quote.PriceInSettlement, quote.SettlementAsset), b.displayAsset(locale, quote.SettlementAsset), formatAmount(quote.GrossSettlementAmount, quote.SettlementAsset), b.displayAsset(locale, quote.SettlementAsset), formatAmount(quote.FeeAmount, quote.FeeAsset), b.displayAsset(locale, quote.FeeAsset), formatAmount(quote.SettlementAmount, quote.SettlementAsset), b.displayAsset(locale, quote.SettlementAsset), formatAmount(quote.AssetAmount, quote.Asset), quote.Asset, quote.Source),
+		}
+		lines = b.appendTMNWordLines(locale, lines,
+			tmnWordEntry{labelKey: "tmn_words.trade_amount", amount: quote.GrossSettlementAmount, asset: quote.SettlementAsset},
+			tmnWordEntry{labelKey: "tmn_words.fee", amount: quote.FeeAmount, asset: quote.FeeAsset},
+			tmnWordEntry{labelKey: "tmn_words.total_charge", amount: quote.SettlementAmount, asset: quote.SettlementAsset},
 		)
+		return true, b.client.SendMessage(ctx, chatID, strings.Join(lines, "\n"), b.confirmMenu(locale))
 	case stepBuyConfirm:
 		if !b.i18n.Matches(text, "confirm") {
 			return true, b.client.SendMessage(ctx, chatID, b.i18n.Text(locale, "buy.confirm_prompt"), b.confirmMenu(locale))
@@ -293,12 +296,12 @@ func (b *Bot) handleSession(ctx context.Context, chatID int64, user domain.User,
 		tx, err := b.service.Buy(ctx, user.TelegramUserID, quote)
 		if err != nil {
 			if errors.Is(err, store.ErrInsufficientFunds) {
-				return true, b.client.SendMessage(ctx, chatID, b.i18n.Text(locale, "buy.insufficient", b.cfg.Market.SettlementCurrency), b.mainMenu(locale, b.service.Sessions().IsAdmin(user.ID)))
+				return true, b.client.SendMessage(ctx, chatID, b.i18n.Text(locale, "buy.insufficient", b.displayAsset(locale, b.cfg.Market.SettlementCurrency)), b.mainMenu(locale, b.service.Sessions().IsAdmin(user.ID)))
 			}
 			return true, err
 		}
 		b.service.Sessions().Clear(user.ID)
-		return true, b.client.SendMessage(ctx, chatID, b.i18n.Text(locale, "buy.success", tx.ID, formatAmount(tx.AssetAmount, tx.AssetCode), tx.AssetCode, formatAmount(tx.FeeAmount, tx.FeeAssetCode), tx.FeeAssetCode, formatAmount(tx.SettlementAmount, tx.SettlementAsset), tx.SettlementAsset), b.mainMenu(locale, b.service.Sessions().IsAdmin(user.ID)))
+		return true, b.client.SendMessage(ctx, chatID, b.i18n.Text(locale, "buy.success", tx.ID, formatAmount(tx.AssetAmount, tx.AssetCode), b.displayAsset(locale, tx.AssetCode), formatAmount(tx.FeeAmount, tx.FeeAssetCode), b.displayAsset(locale, tx.FeeAssetCode), formatAmount(tx.SettlementAmount, tx.SettlementAsset), b.displayAsset(locale, tx.SettlementAsset)), b.mainMenu(locale, b.service.Sessions().IsAdmin(user.ID)))
 	case stepSellAmount:
 		amount, err := parsePositiveDecimal(text)
 		if err != nil {
@@ -315,12 +318,15 @@ func (b *Bot) handleSession(ctx context.Context, chatID int64, user domain.User,
 		session.Data["fee_amount"] = quote.FeeAmount.String()
 		session.Data["price"] = quote.PriceInSettlement.String()
 		b.service.Sessions().Set(user.ID, session)
-		return true, b.client.SendMessage(
-			ctx,
-			chatID,
-			b.i18n.Text(locale, "sell.review", quote.Asset, formatAmount(quote.PriceInSettlement, quote.SettlementAsset), quote.SettlementAsset, formatAmount(quote.AssetAmount, quote.Asset), quote.Asset, formatAmount(quote.GrossSettlementAmount, quote.SettlementAsset), quote.SettlementAsset, formatAmount(quote.FeeAmount, quote.FeeAsset), quote.FeeAsset, formatAmount(quote.SettlementAmount, quote.SettlementAsset), quote.SettlementAsset, quote.Source),
-			b.confirmMenu(locale),
+		lines := []string{
+			b.i18n.Text(locale, "sell.review", quote.Asset, formatAmount(quote.PriceInSettlement, quote.SettlementAsset), b.displayAsset(locale, quote.SettlementAsset), formatAmount(quote.AssetAmount, quote.Asset), quote.Asset, formatAmount(quote.GrossSettlementAmount, quote.SettlementAsset), b.displayAsset(locale, quote.SettlementAsset), formatAmount(quote.FeeAmount, quote.FeeAsset), b.displayAsset(locale, quote.FeeAsset), formatAmount(quote.SettlementAmount, quote.SettlementAsset), b.displayAsset(locale, quote.SettlementAsset), quote.Source),
+		}
+		lines = b.appendTMNWordLines(locale, lines,
+			tmnWordEntry{labelKey: "tmn_words.gross_receive", amount: quote.GrossSettlementAmount, asset: quote.SettlementAsset},
+			tmnWordEntry{labelKey: "tmn_words.fee", amount: quote.FeeAmount, asset: quote.FeeAsset},
+			tmnWordEntry{labelKey: "tmn_words.net_receive", amount: quote.SettlementAmount, asset: quote.SettlementAsset},
 		)
+		return true, b.client.SendMessage(ctx, chatID, strings.Join(lines, "\n"), b.confirmMenu(locale))
 	case stepSellConfirm:
 		if !b.i18n.Matches(text, "confirm") {
 			return true, b.client.SendMessage(ctx, chatID, b.i18n.Text(locale, "sell.confirm_prompt"), b.confirmMenu(locale))
@@ -343,7 +349,7 @@ func (b *Bot) handleSession(ctx context.Context, chatID int64, user domain.User,
 			return true, err
 		}
 		b.service.Sessions().Clear(user.ID)
-		return true, b.client.SendMessage(ctx, chatID, b.i18n.Text(locale, "sell.success", tx.ID, formatAmount(tx.AssetAmount, tx.AssetCode), tx.AssetCode, formatAmount(tx.FeeAmount, tx.FeeAssetCode), tx.FeeAssetCode, formatAmount(tx.SettlementAmount, tx.SettlementAsset), tx.SettlementAsset), b.mainMenu(locale, b.service.Sessions().IsAdmin(user.ID)))
+		return true, b.client.SendMessage(ctx, chatID, b.i18n.Text(locale, "sell.success", tx.ID, formatAmount(tx.AssetAmount, tx.AssetCode), b.displayAsset(locale, tx.AssetCode), formatAmount(tx.FeeAmount, tx.FeeAssetCode), b.displayAsset(locale, tx.FeeAssetCode), formatAmount(tx.SettlementAmount, tx.SettlementAsset), b.displayAsset(locale, tx.SettlementAsset)), b.mainMenu(locale, b.service.Sessions().IsAdmin(user.ID)))
 	case stepDepositAmount:
 		amount, err := parsePositiveDecimal(text)
 		if err != nil {
@@ -353,8 +359,11 @@ func (b *Bot) handleSession(ctx context.Context, chatID int64, user domain.User,
 		session.Data["amount"] = amount.String()
 		b.service.Sessions().Set(user.ID, session)
 		lines := []string{
-			b.i18n.Text(locale, "deposit.instructions", formatAmount(amount, b.cfg.Market.SettlementCurrency), b.cfg.Market.SettlementCurrency, b.service.DepositCardNumber()),
+			b.i18n.Text(locale, "deposit.instructions", formatAmount(amount, b.cfg.Market.SettlementCurrency), b.displayAsset(locale, b.cfg.Market.SettlementCurrency), b.service.DepositCardNumber()),
 		}
+		lines = b.appendTMNWordLines(locale, lines,
+			tmnWordEntry{labelKey: "tmn_words.amount", amount: amount, asset: b.cfg.Market.SettlementCurrency},
+		)
 		if helper := b.tmnHelper(locale); helper != "" {
 			lines = append(lines, "", helper)
 		}
@@ -369,7 +378,7 @@ func (b *Bot) handleSession(ctx context.Context, chatID int64, user domain.User,
 			return true, err
 		}
 		b.service.Sessions().Clear(user.ID)
-		return true, b.client.SendMessage(ctx, chatID, b.i18n.Text(locale, "deposit.pending_success", tx.ID, formatAmount(tx.AssetAmount, tx.AssetCode), tx.AssetCode, b.localizeStatus(locale, tx.Status)), b.mainMenu(locale, b.service.Sessions().IsAdmin(user.ID)))
+		return true, b.client.SendMessage(ctx, chatID, b.i18n.Text(locale, "deposit.pending_success", tx.ID, formatAmount(tx.AssetAmount, tx.AssetCode), b.displayAsset(locale, tx.AssetCode), b.localizeStatus(locale, tx.Status)), b.mainMenu(locale, b.service.Sessions().IsAdmin(user.ID)))
 	case stepWithdrawAmount:
 		amount, err := parsePositiveDecimal(text)
 		if err != nil {
@@ -378,13 +387,19 @@ func (b *Bot) handleSession(ctx context.Context, chatID int64, user domain.User,
 		session.Step = stepWithdrawConfirm
 		session.Data["amount"] = amount.String()
 		b.service.Sessions().Set(user.ID, session)
-		return true, b.client.SendMessage(ctx, chatID, b.i18n.Text(locale, "withdraw.review", formatAmount(amount, b.cfg.Market.SettlementCurrency), b.cfg.Market.SettlementCurrency), b.confirmMenu(locale))
+		lines := []string{
+			b.i18n.Text(locale, "withdraw.review", formatAmount(amount, b.cfg.Market.SettlementCurrency), b.displayAsset(locale, b.cfg.Market.SettlementCurrency)),
+		}
+		lines = b.appendTMNWordLines(locale, lines,
+			tmnWordEntry{labelKey: "tmn_words.amount", amount: amount, asset: b.cfg.Market.SettlementCurrency},
+		)
+		return true, b.client.SendMessage(ctx, chatID, strings.Join(lines, "\n"), b.confirmMenu(locale))
 	case stepWithdrawConfirm:
 		if !b.i18n.Matches(text, "confirm") {
 			return true, b.client.SendMessage(ctx, chatID, b.i18n.Text(locale, "withdraw.confirm_prompt"), b.confirmMenu(locale))
 		}
 		b.service.Sessions().Clear(user.ID)
-		return true, b.client.SendMessage(ctx, chatID, b.i18n.Text(locale, "withdraw.unavailable", formatAmount(decimal.RequireFromString(session.Data["amount"]), b.cfg.Market.SettlementCurrency), b.cfg.Market.SettlementCurrency), b.mainMenu(locale, b.service.Sessions().IsAdmin(user.ID)))
+		return true, b.client.SendMessage(ctx, chatID, b.i18n.Text(locale, "withdraw.unavailable", formatAmount(decimal.RequireFromString(session.Data["amount"]), b.cfg.Market.SettlementCurrency), b.displayAsset(locale, b.cfg.Market.SettlementCurrency)), b.mainMenu(locale, b.service.Sessions().IsAdmin(user.ID)))
 	case stepAddContact:
 		contact, err := b.service.AddContact(ctx, user.TelegramUserID, text)
 		if err != nil {
@@ -431,7 +446,15 @@ func (b *Bot) handleSession(ctx context.Context, chatID int64, user domain.User,
 		session.Data["fee_amount"] = quote.FeeAmount.String()
 		session.Data["total_debit_amount"] = quote.TotalDebitAmount.String()
 		b.service.Sessions().Set(user.ID, session)
-		return true, b.client.SendMessage(ctx, chatID, b.i18n.Text(locale, "transfer.review", session.Data["recipient_name"], quote.Asset, formatAmount(quote.AssetAmount, quote.Asset), quote.Asset, formatAmount(quote.FeeAmount, quote.FeeAsset), quote.FeeAsset, formatAmount(quote.TotalDebitAmount, quote.Asset), quote.Asset), b.confirmMenu(locale))
+		lines := []string{
+			b.i18n.Text(locale, "transfer.review", session.Data["recipient_name"], b.displayAsset(locale, quote.Asset), formatAmount(quote.AssetAmount, quote.Asset), b.displayAsset(locale, quote.Asset), formatAmount(quote.FeeAmount, quote.FeeAsset), b.displayAsset(locale, quote.FeeAsset), formatAmount(quote.TotalDebitAmount, quote.Asset), b.displayAsset(locale, quote.Asset)),
+		}
+		lines = b.appendTMNWordLines(locale, lines,
+			tmnWordEntry{labelKey: "tmn_words.amount", amount: quote.AssetAmount, asset: quote.Asset},
+			tmnWordEntry{labelKey: "tmn_words.fee", amount: quote.FeeAmount, asset: quote.FeeAsset},
+			tmnWordEntry{labelKey: "tmn_words.total_debit", amount: quote.TotalDebitAmount, asset: quote.Asset},
+		)
+		return true, b.client.SendMessage(ctx, chatID, strings.Join(lines, "\n"), b.confirmMenu(locale))
 	case stepTransferConfirm:
 		if !b.i18n.Matches(text, "confirm") {
 			return true, b.client.SendMessage(ctx, chatID, b.i18n.Text(locale, "transfer.confirm_prompt"), b.confirmMenu(locale))
@@ -449,12 +472,12 @@ func (b *Bot) handleSession(ctx context.Context, chatID int64, user domain.User,
 		})
 		if err != nil {
 			if errors.Is(err, store.ErrInsufficientFunds) {
-				return true, b.client.SendMessage(ctx, chatID, b.i18n.Text(locale, "transfer.insufficient", session.Data["asset"]), b.mainMenu(locale, b.service.Sessions().IsAdmin(user.ID)))
+				return true, b.client.SendMessage(ctx, chatID, b.i18n.Text(locale, "transfer.insufficient", b.displayAsset(locale, session.Data["asset"])), b.mainMenu(locale, b.service.Sessions().IsAdmin(user.ID)))
 			}
 			return true, err
 		}
 		b.service.Sessions().Clear(user.ID)
-		return true, b.client.SendMessage(ctx, chatID, b.i18n.Text(locale, "transfer.success", tx.ID, session.Data["recipient_name"], formatAmount(tx.AssetAmount, tx.AssetCode), tx.AssetCode, formatAmount(tx.FeeAmount, tx.FeeAssetCode), tx.FeeAssetCode, formatAmount(tx.SettlementAmount, tx.SettlementAsset), tx.SettlementAsset), b.mainMenu(locale, b.service.Sessions().IsAdmin(user.ID)))
+		return true, b.client.SendMessage(ctx, chatID, b.i18n.Text(locale, "transfer.success", tx.ID, session.Data["recipient_name"], formatAmount(tx.AssetAmount, tx.AssetCode), b.displayAsset(locale, tx.AssetCode), formatAmount(tx.FeeAmount, tx.FeeAssetCode), b.displayAsset(locale, tx.FeeAssetCode), formatAmount(tx.SettlementAmount, tx.SettlementAsset), b.displayAsset(locale, tx.SettlementAsset)), b.mainMenu(locale, b.service.Sessions().IsAdmin(user.ID)))
 	case stepAdminApprovePick:
 		if !b.service.Sessions().IsAdmin(user.ID) {
 			b.service.Sessions().Clear(user.ID)
@@ -473,7 +496,7 @@ func (b *Bot) handleSession(ctx context.Context, chatID int64, user domain.User,
 			session.Data["user_display_name"] = item.UserDisplayName
 			session.Data["amount"] = item.Transaction.AssetAmount.String()
 			b.service.Sessions().Set(user.ID, session)
-			caption := b.i18n.Text(locale, "admin.approve_review", item.Transaction.ID, item.UserDisplayName, formatAmount(item.Transaction.AssetAmount, item.Transaction.AssetCode), item.Transaction.AssetCode, b.localizeStatus(locale, item.Transaction.Status))
+			caption := b.i18n.Text(locale, "admin.approve_review", item.Transaction.ID, item.UserDisplayName, formatAmount(item.Transaction.AssetAmount, item.Transaction.AssetCode), b.displayAsset(locale, item.Transaction.AssetCode), b.localizeStatus(locale, item.Transaction.Status))
 			if strings.TrimSpace(item.Transaction.Reference) != "" {
 				if err := b.client.SendPhoto(ctx, chatID, item.Transaction.Reference, caption, b.confirmMenu(locale)); err == nil {
 					return true, nil
@@ -498,7 +521,7 @@ func (b *Bot) handleSession(ctx context.Context, chatID int64, user domain.User,
 			return true, err
 		}
 		b.service.Sessions().Clear(user.ID)
-		return true, b.client.SendMessage(ctx, chatID, b.i18n.Text(locale, "admin.approve_success", tx.ID, session.Data["user_display_name"], formatAmount(tx.AssetAmount, tx.AssetCode), tx.AssetCode, b.localizeStatus(locale, tx.Status)), b.adminPanelMenu(locale))
+		return true, b.client.SendMessage(ctx, chatID, b.i18n.Text(locale, "admin.approve_success", tx.ID, session.Data["user_display_name"], formatAmount(tx.AssetAmount, tx.AssetCode), b.displayAsset(locale, tx.AssetCode), b.localizeStatus(locale, tx.Status)), b.adminPanelMenu(locale))
 	case stepAdminRateAmount:
 		if !b.service.Sessions().IsAdmin(user.ID) {
 			b.service.Sessions().Clear(user.ID)
@@ -511,7 +534,7 @@ func (b *Bot) handleSession(ctx context.Context, chatID int64, user domain.User,
 		session.Step = stepAdminRateConfirm
 		session.Data["rate"] = rate.String()
 		b.service.Sessions().Set(user.ID, session)
-		return true, b.client.SendMessage(ctx, chatID, b.i18n.Text(locale, "admin.rate_review", b.cfg.Market.QuoteCurrency, formatAmount(rate, b.cfg.Market.SettlementCurrency), b.cfg.Market.SettlementCurrency), b.confirmMenu(locale))
+		return true, b.client.SendMessage(ctx, chatID, b.i18n.Text(locale, "admin.rate_review", b.cfg.Market.QuoteCurrency, formatAmount(rate, b.cfg.Market.SettlementCurrency), b.displayAsset(locale, b.cfg.Market.SettlementCurrency)), b.confirmMenu(locale))
 	case stepAdminRateConfirm:
 		if !b.service.Sessions().IsAdmin(user.ID) {
 			b.service.Sessions().Clear(user.ID)
@@ -525,7 +548,7 @@ func (b *Bot) handleSession(ctx context.Context, chatID int64, user domain.User,
 			return true, err
 		}
 		b.service.Sessions().Clear(user.ID)
-		return true, b.client.SendMessage(ctx, chatID, b.i18n.Text(locale, "admin.rate_success", currentRate.QuoteCurrency, formatAmount(currentRate.Rate, currentRate.SettlementCurrency), currentRate.SettlementCurrency, b.localizeRateSource(locale, currentRate.Source)), b.adminPanelMenu(locale))
+		return true, b.client.SendMessage(ctx, chatID, b.i18n.Text(locale, "admin.rate_success", currentRate.QuoteCurrency, formatAmount(currentRate.Rate, currentRate.SettlementCurrency), b.displayAsset(locale, currentRate.SettlementCurrency), b.localizeRateSource(locale, currentRate.Source)), b.adminPanelMenu(locale))
 	default:
 		b.service.Sessions().Clear(user.ID)
 		return false, nil
@@ -547,12 +570,12 @@ func (b *Bot) sendProfile(ctx context.Context, chatID int64, telegramUserID int6
 			continue
 		}
 		if balance.Available.GreaterThan(decimal.Zero) {
-			holdings = append(holdings, fmt.Sprintf("- %s %s", formatAmount(balance.Available, balance.Asset), balance.Asset))
+			holdings = append(holdings, fmt.Sprintf("- %s %s", formatAmount(balance.Available, balance.Asset), b.displayAsset(locale, balance.Asset)))
 		}
 	}
 
 	lines := []string{
-		b.i18n.Text(locale, "profile.summary", dashboard.User.DisplayName(), dashboard.User.ShareCode, b.cfg.Market.SettlementCurrency, formatAmount(settlementBalance, b.cfg.Market.SettlementCurrency), b.cfg.Market.SettlementCurrency),
+		b.i18n.Text(locale, "profile.summary", dashboard.User.DisplayName(), dashboard.User.ShareCode, b.displayAsset(locale, b.cfg.Market.SettlementCurrency), formatAmount(settlementBalance, b.cfg.Market.SettlementCurrency), b.displayAsset(locale, b.cfg.Market.SettlementCurrency)),
 	}
 	if helper := b.tmnHelper(locale); helper != "" {
 		lines = append(lines, helper)
@@ -581,11 +604,11 @@ func (b *Bot) sendCoins(ctx context.Context, chatID int64, locale string) error 
 	lines := []string{
 		b.i18n.Text(locale, "coins.header"),
 		"",
-		b.i18n.Text(locale, "coins.rate", rate.QuoteCurrency, formatAmount(rate.Rate, rate.SettlementCurrency), rate.SettlementCurrency, b.localizeRateSource(locale, rate.Source)),
+		b.i18n.Text(locale, "coins.rate", rate.QuoteCurrency, formatAmount(rate.Rate, rate.SettlementCurrency), b.displayAsset(locale, rate.SettlementCurrency), b.localizeRateSource(locale, rate.Source)),
 		"",
 	}
 	for _, price := range prices {
-		lines = append(lines, fmt.Sprintf("- %s: %s %s | %s %s", price.Asset, formatAmount(price.PriceInQuote, price.QuoteCurrency), price.QuoteCurrency, formatAmount(price.PriceInSettlement, price.SettlementCurrency), price.SettlementCurrency))
+		lines = append(lines, fmt.Sprintf("- %s: %s %s | %s %s", price.Asset, formatAmount(price.PriceInQuote, price.QuoteCurrency), b.displayAsset(locale, price.QuoteCurrency), formatAmount(price.PriceInSettlement, price.SettlementCurrency), b.displayAsset(locale, price.SettlementCurrency)))
 	}
 	lines = append(lines, "", b.i18n.Text(locale, "coins.prompt"))
 	return b.client.SendMessage(ctx, chatID, strings.Join(lines, "\n"), b.coinSelectionMenu(locale))
@@ -600,7 +623,7 @@ func (b *Bot) sendCoinActions(ctx context.Context, chatID int64, asset, locale s
 	return b.client.SendMessage(
 		ctx,
 		chatID,
-		b.i18n.Text(locale, "coin.actions", asset, formatAmount(price.PriceInQuote, price.QuoteCurrency), price.QuoteCurrency, price.SettlementCurrency, formatAmount(price.PriceInSettlement, price.SettlementCurrency), price.SettlementCurrency),
+		b.i18n.Text(locale, "coin.actions", asset, formatAmount(price.PriceInQuote, price.QuoteCurrency), b.displayAsset(locale, price.QuoteCurrency), b.displayAsset(locale, price.SettlementCurrency), formatAmount(price.PriceInSettlement, price.SettlementCurrency), b.displayAsset(locale, price.SettlementCurrency)),
 		b.coinActionMenu(locale),
 	)
 }
@@ -656,7 +679,7 @@ func (b *Bot) sendAdminPanel(ctx context.Context, chatID int64, locale string) e
 	lines := []string{
 		b.i18n.Text(locale, "admin.panel"),
 		"",
-		b.i18n.Text(locale, "admin.current_rate", rate.QuoteCurrency, formatAmount(rate.Rate, rate.SettlementCurrency), rate.SettlementCurrency, b.localizeRateSource(locale, rate.Source)),
+		b.i18n.Text(locale, "admin.current_rate", rate.QuoteCurrency, formatAmount(rate.Rate, rate.SettlementCurrency), b.displayAsset(locale, rate.SettlementCurrency), b.localizeRateSource(locale, rate.Source)),
 	}
 	return b.client.SendMessage(ctx, chatID, strings.Join(lines, "\n"), b.adminPanelMenu(locale))
 }
@@ -673,7 +696,7 @@ func (b *Bot) sendPendingDeposits(ctx context.Context, chatID int64, userID int6
 
 	lines := []string{b.i18n.Text(locale, "admin.pending_header"), ""}
 	for _, item := range pending {
-		lines = append(lines, fmt.Sprintf("- %s | %s | %s %s", item.Transaction.ID, item.UserDisplayName, formatAmount(item.Transaction.AssetAmount, item.Transaction.AssetCode), item.Transaction.AssetCode))
+		lines = append(lines, fmt.Sprintf("- %s | %s | %s %s", item.Transaction.ID, item.UserDisplayName, formatAmount(item.Transaction.AssetAmount, item.Transaction.AssetCode), b.displayAsset(locale, item.Transaction.AssetCode)))
 	}
 	lines = append(lines, "", b.i18n.Text(locale, "admin.pending_prompt"))
 	b.service.Sessions().Set(userID, service.Session{Step: stepAdminApprovePick, Data: map[string]string{}})
@@ -860,26 +883,101 @@ func (b *Bot) tmnHelper(locale string) string {
 	return b.i18n.Text(locale, "tmn.helper")
 }
 
+func (b *Bot) displayAsset(locale, asset string) string {
+	asset = strings.ToUpper(strings.TrimSpace(asset))
+	if asset != "TMN" {
+		return asset
+	}
+	return fmt.Sprintf("%s %s", asset, b.i18n.Text(locale, "asset.tmn_suffix"))
+}
+
+type tmnWordEntry struct {
+	labelKey string
+	amount   decimal.Decimal
+	asset    string
+}
+
+func (b *Bot) appendTMNWordLines(locale string, lines []string, entries ...tmnWordEntry) []string {
+	for _, entry := range entries {
+		if line := b.tmnWordsLine(locale, entry.labelKey, entry.amount, entry.asset); line != "" {
+			lines = append(lines, line)
+		}
+	}
+	return lines
+}
+
+func (b *Bot) tmnWordsLine(locale, labelKey string, amount decimal.Decimal, asset string) string {
+	if strings.ToUpper(strings.TrimSpace(asset)) != "TMN" || !amount.GreaterThan(decimal.Zero) {
+		return ""
+	}
+
+	tomanAmount := amount.Mul(decimal.NewFromInt(1000))
+	scales := []struct {
+		threshold decimal.Decimal
+		labelKey  string
+	}{
+		{threshold: decimal.NewFromInt(1_000_000_000_000), labelKey: "tmn_words.trillion"},
+		{threshold: decimal.NewFromInt(1_000_000_000), labelKey: "tmn_words.billion"},
+		{threshold: decimal.NewFromInt(1_000_000), labelKey: "tmn_words.million"},
+		{threshold: decimal.NewFromInt(1_000), labelKey: "tmn_words.thousand"},
+	}
+
+	value := tomanAmount
+	unit := b.i18n.Text(locale, "tmn_words.toman")
+	for _, scale := range scales {
+		if tomanAmount.GreaterThanOrEqual(scale.threshold) {
+			value = tomanAmount.Div(scale.threshold)
+			unit = b.i18n.Text(locale, scale.labelKey) + " " + b.i18n.Text(locale, "tmn_words.toman")
+			break
+		}
+	}
+
+	formattedValue := strings.TrimRight(strings.TrimRight(value.StringFixed(2), "0"), ".")
+	formattedValue = b.localizeNumericString(locale, formattedValue)
+	return fmt.Sprintf("%s: %s %s", b.i18n.Text(locale, labelKey), formattedValue, unit)
+}
+
+func (b *Bot) localizeNumericString(locale, input string) string {
+	if b.i18n.Normalize(locale) != localization.LocalePersian {
+		return input
+	}
+
+	replacer := strings.NewReplacer(
+		"0", "۰",
+		"1", "۱",
+		"2", "۲",
+		"3", "۳",
+		"4", "۴",
+		"5", "۵",
+		"6", "۶",
+		"7", "۷",
+		"8", "۸",
+		"9", "۹",
+		".", "٫",
+	)
+	return replacer.Replace(input)
+}
+
 func (b *Bot) formatTransaction(locale string, tx domain.Transaction) string {
 	timestamp := tx.CreatedAt.Local().Format("2006-01-02 15:04")
 	status := b.localizeStatus(locale, tx.Status)
 	fee := ""
 	if tx.FeeAmount.GreaterThan(decimal.Zero) && strings.TrimSpace(tx.FeeAssetCode) != "" {
-		fee = fmt.Sprintf(" | %s %s %s", b.i18n.Text(locale, "tx.fee"), formatAmount(tx.FeeAmount, tx.FeeAssetCode), tx.FeeAssetCode)
+		fee = fmt.Sprintf(" | %s %s %s", b.i18n.Text(locale, "tx.fee"), formatAmount(tx.FeeAmount, tx.FeeAssetCode), b.displayAsset(locale, tx.FeeAssetCode))
 	}
 	switch tx.Kind {
 	case domain.TransactionBuy:
-		return fmt.Sprintf("- %s | %s | %s %s | %s %s %s%s | %s", timestamp, b.i18n.Text(locale, "tx.buy"), formatAmount(tx.AssetAmount, tx.AssetCode), tx.AssetCode, b.i18n.Text(locale, "tx.spent"), formatAmount(tx.SettlementAmount, tx.SettlementAsset), tx.SettlementAsset, fee, status)
+		return fmt.Sprintf("- %s | %s | %s %s | %s %s %s%s | %s", timestamp, b.i18n.Text(locale, "tx.buy"), formatAmount(tx.AssetAmount, tx.AssetCode), b.displayAsset(locale, tx.AssetCode), b.i18n.Text(locale, "tx.spent"), formatAmount(tx.SettlementAmount, tx.SettlementAsset), b.displayAsset(locale, tx.SettlementAsset), fee, status)
 	case domain.TransactionSell:
-		return fmt.Sprintf("- %s | %s | %s %s | %s %s %s%s | %s", timestamp, b.i18n.Text(locale, "tx.sell"), formatAmount(tx.AssetAmount, tx.AssetCode), tx.AssetCode, b.i18n.Text(locale, "tx.received"), formatAmount(tx.SettlementAmount, tx.SettlementAsset), tx.SettlementAsset, fee, status)
+		return fmt.Sprintf("- %s | %s | %s %s | %s %s %s%s | %s", timestamp, b.i18n.Text(locale, "tx.sell"), formatAmount(tx.AssetAmount, tx.AssetCode), b.displayAsset(locale, tx.AssetCode), b.i18n.Text(locale, "tx.received"), formatAmount(tx.SettlementAmount, tx.SettlementAsset), b.displayAsset(locale, tx.SettlementAsset), fee, status)
 	case domain.TransactionTransferOut:
-		return fmt.Sprintf("- %s | %s | %s %s%s | %s", timestamp, b.i18n.Text(locale, "tx.transfer_sent"), formatAmount(tx.AssetAmount, tx.AssetCode), tx.AssetCode, fee, status)
+		return fmt.Sprintf("- %s | %s | %s %s%s | %s", timestamp, b.i18n.Text(locale, "tx.transfer_sent"), formatAmount(tx.AssetAmount, tx.AssetCode), b.displayAsset(locale, tx.AssetCode), fee, status)
 	case domain.TransactionTransferIn:
-		return fmt.Sprintf("- %s | %s | %s %s | %s", timestamp, b.i18n.Text(locale, "tx.transfer_received"), formatAmount(tx.AssetAmount, tx.AssetCode), tx.AssetCode, status)
+		return fmt.Sprintf("- %s | %s | %s %s | %s", timestamp, b.i18n.Text(locale, "tx.transfer_received"), formatAmount(tx.AssetAmount, tx.AssetCode), b.displayAsset(locale, tx.AssetCode), status)
 	case domain.TransactionDeposit:
-		return fmt.Sprintf("- %s | %s | %s %s | %s", timestamp, b.i18n.Text(locale, "tx.deposit"), formatAmount(tx.AssetAmount, tx.AssetCode), tx.AssetCode, status)
+		return fmt.Sprintf("- %s | %s | %s %s | %s", timestamp, b.i18n.Text(locale, "tx.deposit"), formatAmount(tx.AssetAmount, tx.AssetCode), b.displayAsset(locale, tx.AssetCode), status)
 	default:
-		return fmt.Sprintf("- %s | %s | %s %s | %s", timestamp, tx.Kind, formatAmount(tx.AssetAmount, tx.AssetCode), tx.AssetCode, status)
+		return fmt.Sprintf("- %s | %s | %s %s | %s", timestamp, tx.Kind, formatAmount(tx.AssetAmount, tx.AssetCode), b.displayAsset(locale, tx.AssetCode), status)
 	}
 }
 

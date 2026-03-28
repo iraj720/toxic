@@ -472,6 +472,10 @@ The current bot flow is menu-driven and optimized for clarity:
   in the transferred coin for internal transfers.
 - Localization is fully separated from business logic in its own package, with
   Persian as the default locale and English as an alternative.
+- TMN labels shown to users in bot messages are annotated with a human-friendly
+  toman hint, and sensitive confirmation steps also render the entered amount
+  as a toman phrase to reduce amount-entry mistakes, for example `TMN (هزار
+  تومن)` and `1 TMN` as `1 thousand toman` / `۱ هزار تومان`.
 - TMN deposit is currently implemented as a receipt-based pending workflow: the
   user enters an amount, sees the configured card number, uploads a receipt
   photo, and the transaction is stored as pending until it is reviewed.
