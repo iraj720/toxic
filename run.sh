@@ -102,25 +102,23 @@ fi
 
 ensure_database_exists
 
-echo "Starting Telegram exchange bot..."
-echo "Using config: $CONFIG_PATH"
-
-if [[ -x "$BINARY_PATH" ]]; then
-  exec "$BINARY_PATH" -config "$CONFIG_PATH"
-fi
-
 if ! GO_BIN="$(resolve_go_bin)"; then
-  echo "Neither a built bot binary nor Go is available." >&2
-  echo "Run ./infra.sh to build $BINARY_PATH, or install Go and try again." >&2
+  echo "Go is not installed or not available in PATH." >&2
+  echo "Run ./infra.sh first to install Go, then try again." >&2
   exit 1
 fi
 
 GO_BIN_DIR="$(cd "$(dirname "$GO_BIN")" && pwd)"
 
-exec env \
+echo "Building Telegram exchange bot..."
+env \
   PATH="$GO_BIN_DIR:$PATH" \
   GOCACHE="$GOCACHE_DIR" \
   GOMODCACHE="$GOMODCACHE_DIR" \
   GOSUMDB="${GOSUMDB:-off}" \
   GOFLAGS="${GOFLAGS:--mod=mod}" \
-  "$GO_BIN" run ./cmd/exchangebot -config "$CONFIG_PATH"
+  "$GO_BIN" build -o "$BINARY_PATH" ./cmd/exchangebot
+
+echo "Starting Telegram exchange bot..."
+echo "Using config: $CONFIG_PATH"
+exec "$BINARY_PATH" -config "$CONFIG_PATH"
