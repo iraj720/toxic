@@ -7,6 +7,8 @@ CONFIG_PATH="${CONFIG_PATH:-$ROOT_DIR/config.yaml}"
 GO_VERSION="${GO_VERSION:-$(awk '/^go / { print $2; exit }' "$ROOT_DIR/go.mod")}"
 GOCACHE_DIR="${GOCACHE:-$ROOT_DIR/.gocache}"
 GOMODCACHE_DIR="${GOMODCACHE:-$ROOT_DIR/.gomodcache}"
+TARGET_GOOS="${TARGET_GOOS:-}"
+TARGET_GOARCH="${TARGET_GOARCH:-}"
 
 cd "$ROOT_DIR"
 
@@ -174,13 +176,23 @@ SQL
 warm_go_modules() {
   echo "Downloading Go modules..."
   mkdir -p "$GOCACHE_DIR" "$GOMODCACHE_DIR"
-  env \
+  module_env=(
     PATH="/usr/local/go/bin:$PATH" \
     GOCACHE="$GOCACHE_DIR" \
     GOMODCACHE="$GOMODCACHE_DIR" \
     GOSUMDB="${GOSUMDB:-off}" \
-    GOFLAGS="${GOFLAGS:--mod=mod}" \
-    go mod download
+    GOFLAGS="${GOFLAGS:--mod=mod}"
+  )
+
+  if [[ -n "$TARGET_GOOS" ]]; then
+    module_env+=(GOOS="$TARGET_GOOS")
+  fi
+
+  if [[ -n "$TARGET_GOARCH" ]]; then
+    module_env+=(GOARCH="$TARGET_GOARCH")
+  fi
+
+  env "${module_env[@]}" go mod download
 }
 
 main() {
@@ -194,6 +206,7 @@ main() {
   echo "Infrastructure bootstrap completed."
   echo "PostgreSQL is configured for ${DB_HOST}:${DB_PORT}/${DB_NAME}."
   echo "You can now run ./run.sh"
+  echo "Optional cross-build target: TARGET_GOOS=${TARGET_GOOS:-native} TARGET_GOARCH=${TARGET_GOARCH:-native}"
   echo "If this shell still cannot find Go, run: source /etc/profile.d/exchange-go.sh"
 }
 

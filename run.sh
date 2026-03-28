@@ -7,6 +7,8 @@ CONFIG_PATH="${CONFIG_PATH:-$ROOT_DIR/config.yaml}"
 GOCACHE_DIR="${GOCACHE:-$ROOT_DIR/.gocache}"
 GOMODCACHE_DIR="${GOMODCACHE:-$ROOT_DIR/.gomodcache}"
 BINARY_PATH="${BINARY_PATH:-$ROOT_DIR/exchangebot}"
+TARGET_GOOS="${TARGET_GOOS:-}"
+TARGET_GOARCH="${TARGET_GOARCH:-}"
 
 cd "$ROOT_DIR"
 
@@ -111,13 +113,23 @@ fi
 GO_BIN_DIR="$(cd "$(dirname "$GO_BIN")" && pwd)"
 
 echo "Building Telegram exchange bot..."
-env \
+BUILD_ENV=(
   PATH="$GO_BIN_DIR:$PATH" \
   GOCACHE="$GOCACHE_DIR" \
   GOMODCACHE="$GOMODCACHE_DIR" \
   GOSUMDB="${GOSUMDB:-off}" \
-  GOFLAGS="${GOFLAGS:--mod=mod}" \
-  "$GO_BIN" build -o "$BINARY_PATH" ./cmd/exchangebot
+  GOFLAGS="${GOFLAGS:--mod=mod}"
+)
+
+if [[ -n "$TARGET_GOOS" ]]; then
+  BUILD_ENV+=(GOOS="$TARGET_GOOS")
+fi
+
+if [[ -n "$TARGET_GOARCH" ]]; then
+  BUILD_ENV+=(GOARCH="$TARGET_GOARCH")
+fi
+
+env "${BUILD_ENV[@]}" "$GO_BIN" build -o "$BINARY_PATH" ./cmd/exchangebot
 
 echo "Starting Telegram exchange bot..."
 echo "Using config: $CONFIG_PATH"
